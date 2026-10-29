@@ -532,6 +532,21 @@ impl DiffState {
     pub fn files(&self) -> &[DiffFile] {
         &self.files
     }
+    /// The topmost file once its header starts leaving the viewport, and
+    /// the next file header's painted Y coordinate (if it is in view).
+    /// Read after list prepaint to position a sticky header in the same frame.
+    pub fn sticky_file_header(&self) -> Option<(&DiffFile, Option<Pixels>)> {
+        let top = self.list.logical_scroll_top();
+        let file = self.rows.get(top.item_ix)?.file();
+        if top.item_ix == self.header_rows[file] && top.offset_in_item <= px(0.) {
+            return None;
+        }
+        let next_top = self.header_rows.get(file + 1)
+            .and_then(|row| self.list.bounds_for_item(*row))
+            .map(|bounds| bounds.top());
+        Some((&self.files[file], next_top))
+    }
+
     pub fn mode(&self) -> DiffMode {
         self.mode
     }
@@ -669,6 +684,23 @@ impl DiffState {
         self.expanded.iter_mut().for_each(Vec::clear);
         self.rebuild_at_anchor();
         cx.notify();
+    }
+
+    /// Applies a set of collapsed file paths in one rebuild, without emitting
+    /// user events. Paths outside the current comparison are ignored.
+    pub fn set_collapsed_files(
+        &mut self,
+        paths: impl IntoIterator<Item = SharedString>,
+        cx: &mut Context<Self>,
+    ) {
+        let collapsed = paths.into_iter()
+            .filter(|path| self.file_ixs.contains_key(path))
+            .collect();
+        if self.collapsed != collapsed {
+            self.collapsed = collapsed;
+            self.rebuild_at_anchor();
+            cx.notify();
+        }
     }
 
     /// Collapses the file at `path` to its header, or expands it, without
